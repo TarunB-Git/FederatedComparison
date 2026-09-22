@@ -1,0 +1,44 @@
+{
+  "source": "Normalized from the saved config.json files for the reported runs",
+  "seed": 123,
+  "window": 8,
+  "hidden": 256,
+  "layers": 2,
+  "dropout": 0.2,
+  "optimizer": "Adam",
+  "learning_rate": 0.001,
+  "batch_size": 512,
+  "device": "cuda",
+  "centralized": {
+    "epochs": 20,
+    "early_stop_patience": 100,
+    "weight_decay": 0.00001,
+    "workers": 8
+  },
+  "fedavg_fedprox": {
+    "rounds": 50,
+    "clients_per_round": 25,
+    "local_epochs": 1,
+    "max_client_samples": 2000,
+    "max_local_batches": 75,
+    "local_weight_decay": 0.00001,
+    "eval_batch_size": 256,
+    "workers": 0
+  },
+  "fedprox": {
+    "mu": 0.01
+  },
+  "backbone_head": {
+    "rounds": 150,
+    "clients_per_round": 25,
+    "local_epochs": 1,
+    "max_client_samples": 0,
+    "max_local_batches": 75,
+    "local_weight_decay": 0.0,
+    "round_validation_clients": 50,
+    "eval_batch_size": 256,
+    "workers": 0,
+    "scope": "all races jointly",
+    "aggregation": "encoder only"
+  }
+}

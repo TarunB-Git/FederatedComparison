@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the IEEE GEM 2026 paper below."
+title: "FederatedComparison: Personalized Federated Learning for Player Action Prediction in StarCraft II"
+type: software
+authors:
+  - family-names: Boddeda
+    given-names: Tarun
+    orcid: "https://orcid.org/0009-0002-8240-0069"
+repository-code: "https://github.com/TarunB-Git/FederatedComparison"
+url: "https://github.com/TarunB-Git/FederatedComparison"
+license: MIT
+keywords:
+  - federated learning
+  - personalized federated learning
+  - player modeling
+  - StarCraft II
+  - sequence prediction
+  - PyTorch
+preferred-citation:
+  type: conference-paper
+  title: "Personalized Federated Learning for Player Action Prediction in StarCraft II"
+  authors:
+    - family-names: Boddeda
+      given-names: Tarun
+    - family-names: Ateeq
+      given-names: Tayyab
+    - family-names: Goswami
+      given-names: Prashant
+    - family-names: Alawadi
+      given-names: Sadi
+  collection-title: "2026 IEEE Gaming, Entertainment and Media Conference (GEM)"
+  year: 2026

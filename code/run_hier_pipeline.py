@@ -6,7 +6,7 @@ Stages:
 2) centralized learning: GRU/LSTM/Transformer × Prot/Terr/Zerg
 3) FedAvg: GRU/LSTM/Transformer × Prot/Terr/Zerg
 4) FedProx: GRU/LSTM/Transformer × Prot/Terr/Zerg
-5) backbone-head race-specific FL: GRU/LSTM/Transformer
+5) backbone-head FL: GRU/LSTM/Transformer (all races by default)
 6) comparison report
 """
 from __future__ import annotations
@@ -37,10 +37,15 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--dropout", type=float, default=float(os.environ.get("DROPOUT", "0.2")))
     ap.add_argument("--window", type=int, default=int(os.environ.get("WINDOW", "8")))
     ap.add_argument("--lr", type=float, default=float(os.environ.get("LR", "0.001")))
-    ap.add_argument("--bs", type=int, default=int(os.environ.get("BS", "128")))
+    ap.add_argument("--bs", type=int, default=int(os.environ["BS"]) if "BS" in os.environ else None,
+                    help="Batch size. Full profile default: 512; smoke default: 128.")
     ap.add_argument("--mu", type=float, default=float(os.environ.get("MU", "0.01")))
-    ap.add_argument("--clients-per-round", type=int, default=int(os.environ.get("CLIENTS_PER_ROUND", "50")))
-    ap.add_argument("--rounds", type=int, default=int(os.environ.get("ROUNDS", "50")))
+    ap.add_argument("--clients-per-round", type=int, default=int(os.environ["CLIENTS_PER_ROUND"]) if "CLIENTS_PER_ROUND" in os.environ else None,
+                    help="Clients sampled per round. Full profile default: 25; smoke default: 50.")
+    ap.add_argument("--rounds", type=int, default=int(os.environ["ROUNDS"]) if "ROUNDS" in os.environ else None,
+                    help="FedAvg/FedProx rounds. Full profile default: 50; smoke default: 5.")
+    ap.add_argument("--backbone-rounds", type=int, default=int(os.environ["BACKBONE_ROUNDS"]) if "BACKBONE_ROUNDS" in os.environ else None,
+                    help="Backbone-head rounds. Full profile default: 150; smoke default: 5.")
     ap.add_argument("--epochs", type=int, default=int(os.environ.get("EPOCHS", "20")))
     ap.add_argument("--selection-objective", default=os.environ.get("SELECTION_OBJECTIVE", "joint_honest"))
     ap.add_argument("--selection-tiebreakers", default=os.environ.get("SELECTION_TIEBREAKERS", "coarse_balanced_accuracy,coarse_f1_macro,exact_top1"))
@@ -49,18 +54,70 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--max-train", type=int, default=int(os.environ.get("MAX_TRAIN", "0")))
     ap.add_argument("--max-val", type=int, default=int(os.environ.get("MAX_VAL", "0")))
     ap.add_argument("--max-test", type=int, default=int(os.environ.get("MAX_TEST", "0")))
-    ap.add_argument("--max-local-batches", type=int, default=int(os.environ.get("MAX_LOCAL_BATCHES", "0")))
+    ap.add_argument("--max-local-batches", type=int, default=int(os.environ["MAX_LOCAL_BATCHES"]) if "MAX_LOCAL_BATCHES" in os.environ else None,
+                    help="Maximum local batches per selected client. Full profile default: 75; smoke default: 5.")
     ap.add_argument("--max-eval-batches", type=int, default=int(os.environ.get("MAX_EVAL_BATCHES", "0")))
+    ap.add_argument("--max-client-samples", type=int, default=int(os.environ.get("MAX_CLIENT_SAMPLES", "2000")),
+                    help="FedAvg/FedProx sample cap per client (paper protocol: 2000).")
+    ap.add_argument("--local-weight-decay", type=float, default=float(os.environ.get("LOCAL_WEIGHT_DECAY", "1e-5")),
+                    help="FedAvg/FedProx local weight decay (paper protocol: 1e-5).")
+    ap.add_argument("--backbone-max-client-samples", type=int, default=int(os.environ.get("BACKBONE_MAX_CLIENT_SAMPLES", "0")),
+                    help="Backbone-head sample cap (saved runs: 0, meaning no sample cap).")
+    ap.add_argument("--backbone-local-weight-decay", type=float, default=float(os.environ.get("BACKBONE_LOCAL_WEIGHT_DECAY", "0")),
+                    help="Backbone-head local weight decay (saved runs: 0).")
+    ap.add_argument("--central-weight-decay", type=float, default=float(os.environ.get("CENTRAL_WEIGHT_DECAY", "1e-5")))
+    ap.add_argument("--eval-bs", type=int, default=int(os.environ.get("EVAL_BS", "256")))
     ap.add_argument("--auto-prepare", action="store_true", default=True, help="Prepare dataset if missing.")
     ap.add_argument("--skip-prepare", action="store_true", help="Do not run preprocessing even if dataset is missing.")
     ap.add_argument("--archs", default=os.environ.get("ARCHS", "gru"), help="Comma-separated list of architectures (gru, lstm, transformer).")
     ap.add_argument("--races", default=os.environ.get("RACES", "Prot"), help="Comma-separated list of races (Prot, Terr, Zerg).")
     ap.add_argument("--backbone-races", default=os.environ.get("BACKBONE_RACES", "all"), help="Backbone-Head only: comma-separated races (all, Prot, Terr, Zerg).")
-    ap.add_argument("--workers", type=int, default=4, help="Number of dataloader workers (default: 4)")
+    ap.add_argument("--workers", type=int, default=None,
+                    help="Override data-loader workers for every mode.")
+    ap.add_argument("--central-workers", type=int, default=None,
+                    help="Centralized data-loader workers. Full profile default: 8.")
+    ap.add_argument("--federated-workers", type=int, default=None,
+                    help="Federated data-loader workers. Full profile default: 0.")
     ap.add_argument("--no-resume", action="store_true", help="Do not resume from latest checkpoint (default: false)")
-    ap.add_argument("--early-stop-patience", type=int, default=int(os.environ.get("EARLY_STOP_PATIENCE", "8")), help="Patience for early stopping in centralized runs.")
-    ap.add_argument("--round-val-clients", type=int, default=0, help="Backbone-Head only: number of val clients to sample during rounds.")
+    ap.add_argument("--early-stop-patience", type=int, default=int(os.environ["EARLY_STOP_PATIENCE"]) if "EARLY_STOP_PATIENCE" in os.environ else None,
+                    help="Centralized patience. Saved full runs used 100; smoke uses 8.")
+    ap.add_argument("--round-val-clients", type=int, default=int(os.environ["ROUND_VAL_CLIENTS"]) if "ROUND_VAL_CLIENTS" in os.environ else None,
+                    help="Backbone-head validation clients per round. Full profile default: 50; smoke default: all.")
     return ap.parse_args()
+
+
+def resolve_protocol(args: argparse.Namespace) -> dict:
+    """Resolve profile defaults to the settings used by the saved paper runs."""
+    full = args.profile == "full"
+    worker_override = args.workers
+    central_workers = worker_override if worker_override is not None else (
+        args.central_workers if args.central_workers is not None else (8 if full else 0)
+    )
+    federated_workers = worker_override if worker_override is not None else (
+        args.federated_workers if args.federated_workers is not None else 0
+    )
+    return {
+        "epochs": int(args.epochs if full else 3),
+        "fed_rounds": int(args.rounds if args.rounds is not None else (50 if full else 5)),
+        "backbone_rounds": int(args.backbone_rounds if args.backbone_rounds is not None else (150 if full else 5)),
+        "batch_size": int(args.bs if args.bs is not None else (512 if full else 128)),
+        "clients_per_round": int(args.clients_per_round if args.clients_per_round is not None else (25 if full else 50)),
+        "max_train": int(args.max_train if full else 500),
+        "max_val": int(args.max_val if full else 200),
+        "max_test": int(args.max_test if full else 200),
+        "max_local_batches": int(args.max_local_batches if args.max_local_batches is not None else (75 if full else 5)),
+        "max_eval_batches": int(args.max_eval_batches if full else 5),
+        "standard_max_client_samples": int(args.max_client_samples),
+        "standard_local_weight_decay": float(args.local_weight_decay),
+        "backbone_max_client_samples": int(args.backbone_max_client_samples),
+        "backbone_local_weight_decay": float(args.backbone_local_weight_decay),
+        "central_weight_decay": float(args.central_weight_decay),
+        "eval_bs": int(args.eval_bs),
+        "central_workers": int(central_workers),
+        "federated_workers": int(federated_workers),
+        "early_stop_patience": int(args.early_stop_patience if args.early_stop_patience is not None else (100 if full else 8)),
+        "round_val_clients": int(args.round_val_clients if args.round_val_clients is not None else (50 if full else 0)),
+    }
 
 
 def run(cmd: list[str], *, cwd: Path, env: dict[str, str]) -> None:
@@ -133,7 +190,7 @@ def preflight(dataset_dir: Path) -> None:
         raise SystemExit(f"Dataset is missing required files in {dataset_dir}: {', '.join(missing_files)}")
 
 
-def write_tuning_summary(outroot: Path, args: argparse.Namespace, profile_defaults: dict) -> None:
+def write_tuning_summary(outroot: Path, args: argparse.Namespace, protocol: dict) -> None:
     try:
         window_candidates = [int(x.strip()) for x in str(args.window_candidates).split(",") if x.strip()]
     except Exception:
@@ -145,12 +202,13 @@ def write_tuning_summary(outroot: Path, args: argparse.Namespace, profile_defaul
         "selection_tiebreakers": str(args.selection_tiebreakers),
         "action_context_features": str(args.action_context_features),
         "profile": str(args.profile),
-        "selected_epochs": int(profile_defaults["epochs"]),
-        "selected_rounds": int(profile_defaults["rounds"]),
-        "selected_batch_size": int(args.bs),
+        "selected_epochs": int(protocol["epochs"]),
+        "fedavg_fedprox_rounds": int(protocol["fed_rounds"]),
+        "backbone_head_rounds": int(protocol["backbone_rounds"]),
+        "selected_batch_size": int(protocol["batch_size"]),
         "rationale": (
-            "Use one shared window and one comparable training budget across centralized and "
-            "federated approaches so thesis comparisons stay aligned."
+            "The full profile reproduces the saved paper-run configurations. Backbone-head "
+            "uses its recorded 150-round ablation protocol and recorded local-training exceptions."
         ),
     }
     (outroot / "tuning_summary.json").write_text(json.dumps(summary, indent=2))
@@ -217,11 +275,8 @@ def main() -> None:
             print(f"[preflight] dataset config mismatch ({reason_text}); rebuilding artifacts...", flush=True)
             prepare_dataset(code_dir, repo_root, dataset_dir, args.coarse_taxonomy, args.profile, args.split_mode)
 
-    profile_defaults = {
-        "smoke": {"epochs": 3, "rounds": 5, "max_train": 500, "max_val": 200, "max_test": 200, "max_local_batches": 5, "max_eval_batches": 5},
-        "full": {"epochs": args.epochs, "rounds": args.rounds, "max_train": args.max_train, "max_val": args.max_val, "max_test": args.max_test, "max_local_batches": args.max_local_batches, "max_eval_batches": args.max_eval_batches},
-    }[args.profile]
-    write_tuning_summary(outroot, args, profile_defaults)
+    protocol = resolve_protocol(args)
+    write_tuning_summary(outroot, args, protocol)
     (outroot / "benchmark_config.json").write_text(json.dumps({
         "profile": str(args.profile),
         "split_mode": str(args.split_mode),
@@ -231,10 +286,32 @@ def main() -> None:
         "selection_tiebreakers": str(args.selection_tiebreakers),
         "coarse_class_weight_mode": str(args.coarse_class_weight_mode),
         "action_context_features": str(args.action_context_features),
-        "batch_size": int(args.bs),
+        "device": str(args.device),
+        "batch_size": int(protocol["batch_size"]),
         "window": int(args.window),
-        "epochs": int(profile_defaults["epochs"]),
-        "rounds": int(profile_defaults["rounds"]),
+        "centralized": {
+            "epochs": int(protocol["epochs"]),
+            "weight_decay": float(protocol["central_weight_decay"]),
+            "early_stop_patience": int(protocol["early_stop_patience"]),
+            "workers": int(protocol["central_workers"]),
+        },
+        "fedavg_fedprox": {
+            "rounds": int(protocol["fed_rounds"]),
+            "clients_per_round": int(protocol["clients_per_round"]),
+            "max_client_samples": int(protocol["standard_max_client_samples"]),
+            "local_weight_decay": float(protocol["standard_local_weight_decay"]),
+            "max_local_batches": int(protocol["max_local_batches"]),
+            "workers": int(protocol["federated_workers"]),
+        },
+        "backbone_head": {
+            "rounds": int(protocol["backbone_rounds"]),
+            "clients_per_round": int(protocol["clients_per_round"]),
+            "max_client_samples": int(protocol["backbone_max_client_samples"]),
+            "local_weight_decay": float(protocol["backbone_local_weight_decay"]),
+            "max_local_batches": int(protocol["max_local_batches"]),
+            "round_val_clients": int(protocol["round_val_clients"]),
+            "workers": int(protocol["federated_workers"]),
+        },
         "strict_coarse_audit": str(env.get("STRICT_COARSE_AUDIT", "1")),
         "coarse_inflation_rectify": str(env.get("COARSE_INFLATION_RECTIFY", "1")),
     }, indent=2))
@@ -250,42 +327,43 @@ def main() -> None:
         "--dropout", str(args.dropout),
         "--seed", str(args.seed),
         "--device", args.device,
-        "--max-eval-batches", str(profile_defaults["max_eval_batches"]),
+        "--max-eval-batches", str(protocol["max_eval_batches"]),
         "--coarse-taxonomy", args.coarse_taxonomy,
         "--coarse-class-weight-mode", args.coarse_class_weight_mode,
         "--action-context-features", args.action_context_features,
         "--selection-objective", args.selection_objective,
         "--selection-tiebreakers", args.selection_tiebreakers,
-        "--workers", str(args.workers),
+        "--workers", str(protocol["central_workers"]),
     ]
     if not args.no_resume:
         common.append("--resume")
-    common.extend(["--early-stop-patience", str(args.early_stop_patience)])
+    common.extend(["--early-stop-patience", str(protocol["early_stop_patience"])])
 
     central_common = [
-        "--epochs", str(profile_defaults["epochs"]),
-        "--bs", str(args.bs),
+        "--epochs", str(protocol["epochs"]),
+        "--bs", str(protocol["batch_size"]),
         "--lr", str(args.lr),
-        "--max-train-samples", str(profile_defaults["max_train"]),
-        "--max-val-samples", str(profile_defaults["max_val"]),
-        "--max-test-samples", str(profile_defaults["max_test"]),
-        "--max-train-batches", str(profile_defaults["max_local_batches"]),
+        "--weight-decay", str(protocol["central_weight_decay"]),
+        "--max-train-samples", str(protocol["max_train"]),
+        "--max-val-samples", str(protocol["max_val"]),
+        "--max-test-samples", str(protocol["max_test"]),
+        "--max-train-batches", "0" if args.profile == "full" else str(protocol["max_local_batches"]),
     ]
 
     federated_common = [
-        "--rounds", str(profile_defaults["rounds"]),
-        "--clients-per-round", str(args.clients_per_round),
-        "--local-bs", str(args.bs),
+        "--clients-per-round", str(protocol["clients_per_round"]),
+        "--local-bs", str(protocol["batch_size"]),
         "--local-lr", str(args.lr),
         "--local-epochs", "1",
-        "--max-local-batches", str(profile_defaults["max_local_batches"]),
-        "--max-eval-batches", str(profile_defaults["max_eval_batches"]),
+        "--max-local-batches", str(protocol["max_local_batches"]),
+        "--eval-bs", str(protocol["eval_bs"]),
+        "--max-eval-batches", str(protocol["max_eval_batches"]),
         "--coarse-taxonomy", args.coarse_taxonomy,
         "--coarse-class-weight-mode", args.coarse_class_weight_mode,
         "--action-context-features", args.action_context_features,
         "--selection-objective", args.selection_objective,
         "--selection-tiebreakers", args.selection_tiebreakers,
-        "--workers", str(args.workers),
+        "--workers", str(protocol["federated_workers"]),
     ]
     if not args.no_resume:
         federated_common.append("--resume")
@@ -325,6 +403,9 @@ def main() -> None:
                     "--model-name", arch,
                     "--race", race,
                     *federated_common,
+                    "--rounds", str(protocol["fed_rounds"]),
+                    "--max-client-samples", str(protocol["standard_max_client_samples"]),
+                    "--local-weight-decay", str(protocol["standard_local_weight_decay"]),
                     "--outdir", str(outdir),
                 ], cwd=repo_root, env=env, outdir=outdir)
 
@@ -345,6 +426,9 @@ def main() -> None:
                     "--model-name", arch,
                     "--race", race,
                     *federated_common,
+                    "--rounds", str(protocol["fed_rounds"]),
+                    "--max-client-samples", str(protocol["standard_max_client_samples"]),
+                    "--local-weight-decay", str(protocol["standard_local_weight_decay"]),
                     "--mu", str(args.mu),
                     "--outdir", str(outdir),
                 ], cwd=repo_root, env=env, outdir=outdir)
@@ -367,7 +451,10 @@ def main() -> None:
                     "--model-name", arch,
                     "--race", race,
                     *federated_common,
-                    "--round-val-clients", str(args.round_val_clients),
+                    "--rounds", str(protocol["backbone_rounds"]),
+                    "--max-client-samples", str(protocol["backbone_max_client_samples"]),
+                    "--local-weight-decay", str(protocol["backbone_local_weight_decay"]),
+                    "--round-val-clients", str(protocol["round_val_clients"]),
                     "--outdir", str(outdir),
                 ], cwd=repo_root, env=env, outdir=outdir)
 

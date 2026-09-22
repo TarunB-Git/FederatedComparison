@@ -1,0 +1,58 @@
+# Python environments and caches
+.venv/
+**/__pycache__/
+*.py[cod]
+.cache/
+
+# Raw tournament data (documented in TOURNAMENTS.md)
+/2018_IEM_Katowice/
+/2019_IEM_Katowice/
+/2020_Dreamhack_SC2_Masters_Fall/
+/2020_Dreamhack_SC2_Masters_Summer/
+/2020_Dreamhack_SC2_Masters_Winter/
+/2020_IEM_Katowice/
+/2021_Dreamhack_SC2_Masters_Fall/
+/2021_Dreamhack_SC2_Masters_Summer/
+/2021_Dreamhack_SC2_Masters_Winter/
+/2021_IEM_Katowice/
+/2022_03_DH_SC2_Masters_Atlanta/
+/2022_Dreamhack_SC2_Masters_Last_Chance2021/
+/2022_Dreamhack_SC2_Masters_Valencia/
+/2022_IEM_Katowice/
+/2023_01_IEM_Katowice/
+/2023_04_ESL_SC2_Masters_Summer_Finals/
+/2023_07_ESL_SC2_Masters_Winter_Finals/
+/2024_01_IEM_Katowice/
+/2024_03_ESL_SC2_Masters_Spring_Finals/
+/tournament.zip
+/TOURNAMENTS.md
+
+# Generated datasets, runs, and model artifacts
+/artifacts/processed_events.parquet
+/artifacts_smoke/
+/artifacts/*.json
+/artifacts/*.csv
+/artifacts/tmp_parts/
+/runs/
+*.pt
+*.pt.tar
+
+# Local research-writing workspaces
+/DP_thesis_tmpl/
+/papers/
+/paper/
+/Games_FL_IEEE_GEM_2026/
+/rejoinder/
+/thesis_slides/
+/Figures/
+/notes/
+
+# Manuscript sources and LaTeX build products
+*.tex
+*.bib
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.synctex.gz

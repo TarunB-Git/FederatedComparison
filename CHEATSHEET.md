@@ -1,79 +1,163 @@
-# FedComparison Cheatsheet (short)
+# FedComparison command reference
 
-Quick commands to set up, prepare data, run experiments, and inspect results.
+These commands use flags accepted by the current scripts. The single-run examples reproduce the saved paper protocol for one GRU configuration and are computationally expensive.
 
-1) Create virtualenv and install deps
+## Set up the environment
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-# For CUDA: install a matching torch build, e.g.
-# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+python -m pip install --upgrade pip
+python -m pip install torch==2.0.1 --index-url https://download.pytorch.org/whl/cpu
+python -m pip install -r requirements.txt
 ```
 
-2) Prepare dataset (writes `artifacts/`)
+For GPU experiments, replace the CPU PyTorch wheel with the build matching the local CUDA runtime.
+
+## Prepare the dataset
 
 ```bash
-python code/prepare.py --root . --outdir artifacts --hierarchy-taxonomy legacy8 --split-mode replay
+python code/prepare.py \
+  --root . \
+  --outdir artifacts \
+  --hierarchy-taxonomy legacy8 \
+  --split-mode replay
 ```
 
-3) Quick smoke end-to-end pipeline
+See [`DATA.md`](DATA.md) for the required source archives and directory layout.
+
+## Run an end-to-end smoke test
 
 ```bash
-python code/run_hier_pipeline.py --profile smoke --dataset-dir artifacts --outroot runs/hier_pipeline_smoke
+python code/prepare.py \
+  --root . \
+  --outdir artifacts_smoke \
+  --hierarchy-taxonomy legacy8 \
+  --split-mode replay \
+  --smoke
+
+python code/run_hier_pipeline.py \
+  --profile smoke \
+  --dataset-dir artifacts_smoke \
+  --outroot runs/hier_pipeline_smoke \
+  --workers 0
 ```
 
-4) Run a single paradigm
+## Run one saved-protocol configuration
 
-- Centralized (GRU, Prot):
-```bash
-python code/hier_centralized.py --dataset-dir artifacts --outdir runs/centralized_gru_Prot --arch gru --races Prot --profile smoke
-```
-
-- FedAvg:
-```bash
-python code/hier_fedavg.py --dataset-dir artifacts --outdir runs/fedavg_gru_Prot --arch gru --races Prot --profile smoke
-```
-
-- FedProx (with mu):
-```bash
-python code/hier_fedprox.py --dataset-dir artifacts --outdir runs/fedprox_gru_Prot --arch gru --races Prot --profile smoke --mu 0.01
-```
-
-- Backbone–Head (shared encoder, local heads):
-```bash
-python code/hier_backbone_head_race.py --dataset-dir artifacts --outroot runs/backbone_head_smoke --profile smoke --arch gru --backbone-races all
-```
-
-5) Useful flags (short):
-
-- `--arch` / `--archs`: `gru`, `lstm`, `transformer`
-- `--hidden`: encoder hidden dim (default 256)
-- `--layers`: encoder depth (default 2)
-- `--window`: input window size (e.g., 8)
-- `--bs`: batch size
-- `--epochs`: training epochs (centralized) or client epochs (federated)
-- `--rounds`: federated rounds
-- `--clients-per-round`: clients selected per round
-- `--mu`: FedProx proximal weight
-- `--device`: `cpu` or `cuda`
-- `--profile`: `smoke` or `full`
-
-6) Generate figures / parse metrics
+Centralized GRU on Protoss:
 
 ```bash
-python generate_figures.py
-python parse_metrics.py runs/hier_pipeline_smoke/cross_run_results.csv
+python code/hier_centralized.py \
+  --dataset-dir artifacts \
+  --outdir runs/centralized_gru_prot \
+  --model-name gru \
+  --race Prot \
+  --window 8 \
+  --hidden 256 \
+  --layers 2 \
+  --dropout 0.2 \
+  --epochs 20 \
+  --bs 512 \
+  --lr 0.001 \
+  --weight-decay 1e-5 \
+  --early-stop-patience 100 \
+  --workers 8 \
+  --seed 123 \
+  --device cuda \
+  --resume
 ```
 
-7) Inspect outputs
+FedAvg GRU on Protoss:
 
-- Check run directory (`--outroot`) for `final_test.json`, checkpoints, and `cross_run_results.csv`.
+```bash
+python code/hier_fedavg.py \
+  --dataset-dir artifacts \
+  --outdir runs/fedavg_gru_prot \
+  --model-name gru \
+  --race Prot \
+  --window 8 \
+  --hidden 256 \
+  --layers 2 \
+  --dropout 0.2 \
+  --rounds 50 \
+  --clients-per-round 25 \
+  --local-epochs 1 \
+  --local-bs 512 \
+  --local-lr 0.001 \
+  --local-weight-decay 1e-5 \
+  --max-client-samples 2000 \
+  --max-local-batches 75 \
+  --eval-bs 256 \
+  --workers 0 \
+  --seed 123 \
+  --device cuda \
+  --resume
+```
 
-8) Notes
+FedProx GRU on Protoss:
 
-- Use `--profile smoke` for fast iteration.
-- If using GPU, ensure `torch` has CUDA support and pass `--device cuda`.
-- Avoid multiple copies of `hier_models`/`pvp_raw_state_models` on `PYTHONPATH`.
+```bash
+python code/hier_fedprox.py \
+  --dataset-dir artifacts \
+  --outdir runs/fedprox_gru_prot \
+  --model-name gru \
+  --race Prot \
+  --mu 0.01 \
+  --window 8 \
+  --hidden 256 \
+  --layers 2 \
+  --dropout 0.2 \
+  --rounds 50 \
+  --clients-per-round 25 \
+  --local-epochs 1 \
+  --local-bs 512 \
+  --local-lr 0.001 \
+  --local-weight-decay 1e-5 \
+  --max-client-samples 2000 \
+  --max-local-batches 75 \
+  --eval-bs 256 \
+  --workers 0 \
+  --seed 123 \
+  --device cuda \
+  --resume
+```
+
+Backbone-head GRU trained jointly across all races:
+
+```bash
+python code/hier_backbone_head_race.py \
+  --dataset-dir artifacts \
+  --outdir runs/backbone_head_gru \
+  --model-name gru \
+  --race all \
+  --window 8 \
+  --hidden 256 \
+  --layers 2 \
+  --dropout 0.2 \
+  --rounds 150 \
+  --clients-per-round 25 \
+  --local-epochs 1 \
+  --local-bs 512 \
+  --local-lr 0.001 \
+  --local-weight-decay 0 \
+  --max-client-samples 0 \
+  --max-local-batches 75 \
+  --eval-bs 256 \
+  --round-val-clients 50 \
+  --workers 0 \
+  --seed 123 \
+  --device cuda \
+  --resume
+```
+
+Replace `gru` with `lstm` or `transformer`, and choose `Prot`, `Terr`, or `Zerg` for race-specific runs. Backbone-head paper runs use `--race all`.
+
+## Generate figures and run tests
+
+```bash
+python scripts/generate_readme_figures.py
+python -m unittest discover -s tests -v
+```
+
+The full protocol, including the backbone-head exceptions, is recorded in [`results/paper_protocol.json`](results/paper_protocol.json).
